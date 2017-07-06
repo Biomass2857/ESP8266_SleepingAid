@@ -14,12 +14,7 @@ const int shortpress = 600;
 const int longpress = 2000;
 const int tvok = 2100;
 
-int depth1 = -1;
-int depth2 = -1;
-int depth3 = -1;
-
-int depth[10];
-unsigned int depthIndex = 0;
+char *cstring = NULL;
 
 bool bpressed = false;
 bool breleased = false;
@@ -27,33 +22,58 @@ unsigned int timesbpressed = 0;
 bool vok = false;
 bool configured = false;
 
+unsigned int currentFanState = 0;
+unsigned int currentEffect = 0;
+
+bool crawlFstates = false;
+bool crawlEstates = false;
+
+int data[3] = { 0 };
+
 int cr = 0;
 int cg = 0;
 int cb = 0;
 
-unsigned int selection = 0;
 Ticker timer;
 
-static unsigned int waitCounter = 0;
-static bool doIHaveToWait = false;
-
-void setWait(unsigned int ms)
+class Waiter
 {
-  doIHaveToWait = true;
-  waitCounter = ms;
-}
+  public:
+    Waiter()
+    {
+      counter = 0;
+    }
+  
+    void wait(unsigned int ms)
+    {
+      counter = ms;
+    }
 
-void doIStillHaveToWait()
-{
-  if(--waitCounter == 0)
-    doIHaveToWait = false;
-}
+    bool isStillWaiting()
+    {
+      if(counter > 0)
+      {
+        --counter;
+      }
 
-void ClearWait()
-{
-  waitCounter = 0;
-  doIHaveToWait = false;
-}
+      return counter != 0;
+    }
+
+    void clear()
+    {
+      counter = 0;
+    }
+
+    unsigned int getRemainingTime()
+    {
+      return counter;
+    }
+  protected:
+    unsigned int counter;
+};
+
+Waiter leff_waiter;
+Waiter crawl_waiter;
 
 void setRGB(int r, int g, int b)
 {
@@ -76,7 +96,7 @@ void fire()
   
   static int action = 0;
 
-  if(!doIHaveToWait)
+  if(!leff_waiter.isStillWaiting())
   {
     action = random(0, 2);
         
@@ -97,11 +117,7 @@ void fire()
     }
       
     setRGB(cr, cg, cb);
-    setWait(random(60, 150));
-  }
-  else
-  {
-    doIStillHaveToWait();
+    leff_waiter.wait(random(60, 150));
   }
 }
 
@@ -118,7 +134,7 @@ void train()
   static int blinkCounter = 0;
   static int state2 = 0;
 
-  if(!doIHaveToWait)
+  if(!leff_waiter.isStillWaiting())
   {
     switch(state2)
      {
@@ -147,9 +163,9 @@ void train()
           setRGB(blinkCounter * v * grmult, blinkCounter * v * grmult, blinkCounter * v * bmult);
           
           if(bahnhof)
-            setWait(250 / (255 / v));
+            leff_waiter.wait(250 / (255 / v));
           else
-            setWait(500 / (255 / v));
+            leff_waiter.wait(500 / (255 / v));
           blinkCounter++;
         }
         else
@@ -161,9 +177,9 @@ void train()
            setRGB(blinkCounter * v * grmult, blinkCounter * v * grmult, blinkCounter * v * bmult);
       
            if(bahnhof)
-             setWait(250 / (255 / v));
+             leff_waiter.wait(250 / (255 / v));
            else
-             setWait(500 / (255 / v));
+             leff_waiter.wait(500 / (255 / v));
            blinkCounter--;
         }
         else
@@ -171,7 +187,7 @@ void train()
       break;
       case 3:
         if(!bahnhof)
-          setWait((500 + random(0, 250)) / v);
+          leff_waiter.wait((500 + random(0, 250)) / v);
          
         if(zyklenBeendet < zyklen)
         {
@@ -182,10 +198,6 @@ void train()
           state2 = (state2 + 1) % 4;
       break;
      }
-  }
-  else
-  {
-    doIStillHaveToWait();
   }
 }
 
@@ -208,11 +220,6 @@ void button_change_isr()
   }
 }
 
-void button_release_isr()
-{
-  bpressed = false;
-}
-
 void timerISR()
 {
   static unsigned long int bpwCounter = 0;
@@ -220,6 +227,8 @@ void timerISR()
   static unsigned long int buttonTriggered = 0, buttonLastSignal = 0;
   static bool isChecking = false;
   static bool firePreview = false, trainPreview = false;
+  static unsigned int menu = 0;
+  static bool enter = false;
   
   bpwCounter++;
   
@@ -231,198 +240,157 @@ void timerISR()
     ClearWait();
   }*/
 
-  if(firePreview)
+  if(crawlEstates)
   {
-    fire();
+    if(!crawl_waiter.isStillWaiting())
+    {
+      currentEffect = (currentEffect + 1) % 2;
+      crawl_waiter.wait(5000);
+    }
+
+    switch(currentEffect)
+    {
+      case 0:
+        fire();
+      break;
+      case 1:
+        train();
+      break;
+    }
   }
-  else if(trainPreview)
+
+  if(crawlFstates)
   {
-    train();
+    if(!crawl_waiter.isStillWaiting())
+    {
+      setRGB(0, 255 * (currentFanState + 1) / 10, 0);
+      currentFanState = (currentFanState + 1) % 10;
+      setFan((currentFanState + 1) * 10);
+      if(currentFanState != 0)
+        crawl_waiter.wait(2500);
+      else
+        crawl_waiter.wait(5000);
+    }
+    else if(crawl_waiter.getRemainingTime() < 1500)
+      setRGB(0, 0, 0);
   }
 
   if(configured)
   {
-    switch(selection)
+    setFan(data[0] * 10);
+
+    switch(data[1])
     {
       case 0:
-        train();
+        fire();
       break;
       case 1:
-        fire();
+        train();
       break;
     }
   }
-  else
-  {
-    if(bpressed && !isChecking)
-    {
-      bpwCounter = 0;
-      isChecking = true;
-      confirmCounter = 0;
-    }
-    else if(bpressed && isChecking && !breleased)
-    {
-      buttonLastSignal = bpwCounter;
-      confirmCounter = 0;
-    }
-    else if(breleased && isChecking)
-    {
-      isChecking = false;
-
-      bpressed = false;
-      breleased = false;
-      
-      long int offsetTime = buttonLastSignal - buttonTriggered;
-
-      if(offsetTime <= shortpress && offsetTime > btnjumpignore)
-      {
-        Serial.println("[Event] Shortpress");
-        timesbpressed++;
-        confirmCounter = 0;
-      }
-      else if(offsetTime > shortpress && offsetTime < longpress)
-      {
-        Serial.println("[Event] reset (longpress)");
-        timesbpressed = 0;
-        confirmCounter = 0;
-        setRGB(0, 0, 0);
-        setFan(0);
-        firePreview = false;
-        trainPreview = false;
-        depthIndex = 0;
-      }
-
-      buttonLastSignal = 0;
-      buttonTriggered = 0;
-      bpwCounter = 0;
-    }
-    
-    if(timesbpressed > 0)
-      confirmCounter++;
-    
-    if(!bpressed && confirmCounter > tvok && timesbpressed > 0)
-    {
-      confirmCounter = 0;
-      vok = true;
-      setRGB(100, 100, 100);
-    }
-
-    if(vok)
-    {
-      vok = false;
-      if(depth1 < 0)
-      {
-        depth1 = timesbpressed;
-        timesbpressed = 0;
-        switch(depth1)
-        {
-          case 1:
-            setRGB(255, 0, 255);
-          break;
-          case 2:
-            setRGB(0, 255, 0);
-          break;
-          case 3:
-            setRGB(0, 0, 255);
-          break;
-          default:
-            depth1 = -1;
-          break;
-        }
-      }
-      else if(depth2 < 0)
-      {
-        depth2 = timesbpressed;
-        timesbpressed = 0;
-        switch(depth1)
-        {
-          case 1:
-            switch(depth2)
-            {
-              case 1:
-                setFan(25);
-              break;
-              case 2:
-                setFan(50);
-              break;
-              case 3:
-                setFan(100);
-              break;
-              default:
-                depth2 = -1;
-              break;
-            }
-          break;
-          case 2:
-            switch(depth2)
-            {
-              case 1:
-                firePreview = true;
-              break;
-              case 2:
-                trainPreview = true;
-              break;
-              default:
-                depth2 = -1;
-              break;
-            }
-          break;
-          default:
-            setFan(0);
-          break;
-        }
-      }
-      else if(depth3 < 0)
-      {
-        depth3 = timesbpressed;
-        timesbpressed = 0;
-      }
-
-      if(depth1 >= 0 && depth2 >= 0 && depth3 >= 0)
-      {
-        switch(depth1)
-        {
-          case 1:
-            if(depth2 >= 0)
-            {
-              switch(depth2)
-              {
-                case 0:
-                  
-                break;
-                case 1:
-
-                break;
-                default:
-                  depth1 = -1;
-                  depth2 = -1;
-                break;
-              }
-            }
-          break;
-          case 2:
-            if(depth2 >= 0)
-            {
-              switch(depth2)
-              {
-                case 0:
-                    
-                break;
-                case 1:
   
-                break;
-                default:
-                  depth1 = -1;
-                  depth2 = -1;
-                break;
-              }
-            }
+  if(bpressed && !isChecking)
+  {
+    bpwCounter = 0;
+    isChecking = true;
+    confirmCounter = 0;
+  }
+  else if(bpressed && isChecking && !breleased)
+  {
+    buttonLastSignal = bpwCounter;
+    confirmCounter = 0;
+  }
+  else if(breleased && isChecking)
+  {
+    isChecking = false;
+
+    bpressed = false;
+    breleased = false;
+    
+    long int offsetTime = buttonLastSignal - buttonTriggered;
+
+    if(offsetTime <= shortpress && offsetTime > btnjumpignore)
+    {
+      Serial.println("[Event] Shortpress");
+      confirmCounter = 0;
+      if(menu != 0)
+      {
+        switch(menu)
+        {
+          case 1:
+            data[menu - 1] = currentFanState;
           break;
-          default:
-            depth1 = -1;
+          case 2:
+            data[menu - 1] = currentEffect;
           break;
         }
+
+        menu = 0;
+        crawlFstates = false;
+        crawlEstates = false;
+        setFan(0);
+        setRGB(0, 0, 0);
+        enter = true;
       }
+      else
+        timesbpressed++;
+    }
+    else if(offsetTime > shortpress && offsetTime < longpress)
+    {
+      Serial.println("[Event] reset (longpress)");
+      timesbpressed = 0;
+      confirmCounter = 0;
+      setRGB(0, 0, 0);
+      setFan(0);
+      menu = 0;
+      crawlFstates = false;
+      crawlEstates = false;
+
+      for(int i = 0; i < sizeof(data) / sizeof(int); i++)
+      {
+        data[i] = 0;
+      }
+    }
+
+    buttonLastSignal = 0;
+    buttonTriggered = 0;
+    bpwCounter = 0;
+  }
+  
+  if(timesbpressed > 0 || enter)
+    confirmCounter++;
+  
+  if(!bpressed && confirmCounter > tvok && (timesbpressed > 0 || enter))
+  {
+    Serial.println("[Event] Virtual OK");
+    confirmCounter = 0;
+    enter = false;
+    if(menu == 0)
+    {
+      menu = timesbpressed;
+      timesbpressed = 0;
+      switch(menu)
+      {
+         case 1:
+          crawlFstates = true;
+         break;
+         case 2:
+          crawlEstates = true;
+         break;
+         case 5:
+          configured = true;
+          crawlFstates = false;
+          crawlEstates = false;
+          menu = 0;
+          setRGB(0, 0, 0);
+          setFan(0);
+         break;
+      }
+    }
+    else
+    {
+      
     }
   }
 }
@@ -441,8 +409,6 @@ void setup()
   timer.attach_ms(1, timerISR);
   setRGB(0, 0, 0);
 }
-
-char *cstring = NULL;
 
 void loop()
 {
