@@ -9,8 +9,8 @@ const int BUTTON = 4;
 const int FANSPEED = 16;
 const int FANDATA = 14;
 
-const int btnjumpignore = 200;
-const int shortpress = 600;
+const int btnjumpignore = 150;
+const int shortpress = 800;
 const int longpress = 2000;
 const int tvok = 2100;
 
@@ -24,10 +24,14 @@ bool configured = false;
 
 unsigned int currentFanState = 0;
 unsigned int currentEffect = 0;
+unsigned int currentFanDecay = 0;
 
 bool crawlFstates = false;
 bool crawlEstates = false;
+bool crawlFanDecay = false;
+bool fanMoves = false;
 
+unsigned short fanstates[8] = { 8, 15, 20, 40, 60, 80, 0, 0 };
 int data[3] = { 0 };
 
 int cr = 0;
@@ -74,6 +78,7 @@ class Waiter
 
 Waiter leff_waiter;
 Waiter crawl_waiter;
+Waiter dec_waiter;
 
 void setRGB(int r, int g, int b)
 {
@@ -201,9 +206,9 @@ void train()
   }
 }
 
-void setFan(int speed)
+void setFan(unsigned short speed)
 {
-  analogWrite(FANSPEED, ((speed * 68 / 100) + 32) * 1023 / 100);
+  analogWrite(FANSPEED, 1023 * speed / 100);
 }
 
 void button_change_isr()
@@ -226,9 +231,9 @@ void timerISR()
   static unsigned int confirmCounter = 0;
   static unsigned long int buttonTriggered = 0, buttonLastSignal = 0;
   static bool isChecking = false;
-  static bool firePreview = false, trainPreview = false;
   static unsigned int menu = 0;
   static bool enter = false;
+  static unsigned int cdecay = 0;
   
   bpwCounter++;
   
@@ -263,23 +268,53 @@ void timerISR()
   {
     if(!crawl_waiter.isStillWaiting())
     {
-      setRGB(0, 255 * (currentFanState + 1) / 10, 0);
-      currentFanState = (currentFanState + 1) % 10;
-      setFan((currentFanState + 1) * 10);
+      currentFanState = (currentFanState + 1) % 8;
+      setRGB(0, 255 * fanstates[currentFanState], 0);
+      setFan(fanstates[currentFanState]);
       if(currentFanState != 0)
-        crawl_waiter.wait(2500);
+        crawl_waiter.wait(7000);
       else
-        crawl_waiter.wait(5000);
+        crawl_waiter.wait(7000);
     }
-    else if(crawl_waiter.getRemainingTime() < 1500)
+    else if(crawl_waiter.getRemainingTime() < 1000)
       setRGB(0, 0, 0);
+  }
+
+  if(crawlFanDecay)
+  {
+    if(!crawl_waiter.isStillWaiting())
+    {
+      if(currentFanDecay < 100)
+      {
+        currentFanDecay++;
+        fanMoves = true;
+      }
+      else if(currentFanDecay == 100)
+      {
+        crawl_waiter.wait(4000);
+        fanMoves = false;
+        currentFanDecay = 0;
+      }
+      else
+        crawl_waiter.wait(500);
+      setFan(100 - currentFanDecay);
+    }
   }
 
   if(configured)
   {
-    setFan(data[0] * 10);
-
-    switch(data[1])
+    if(data[1] == 1)
+    {
+      if(!dec_waiter.isStillWaiting())
+      {
+        if(cdecay < fanstates[data[1]])
+          cdecay++;
+        dec_waiter.wait(4);
+      }
+    }
+    setFan(fanstates[data[1]] - cdecay);
+    
+    switch(data[2])
     {
       case 0:
         fire();
@@ -289,6 +324,8 @@ void timerISR()
       break;
     }
   }
+
+  
   
   if(bpressed && !isChecking)
   {
@@ -322,6 +359,9 @@ void timerISR()
             data[menu - 1] = currentFanState;
           break;
           case 2:
+            data[menu - 1] = fanMoves ? 1 : 0;
+          break;
+          case 3:
             data[menu - 1] = currentEffect;
           break;
         }
@@ -329,6 +369,7 @@ void timerISR()
         menu = 0;
         crawlFstates = false;
         crawlEstates = false;
+        crawlFanDecay = false;
         setFan(0);
         setRGB(0, 0, 0);
         enter = true;
@@ -344,8 +385,10 @@ void timerISR()
       setRGB(0, 0, 0);
       setFan(0);
       menu = 0;
+      configured = false;
       crawlFstates = false;
       crawlEstates = false;
+      crawlFanDecay = false;
 
       for(int i = 0; i < sizeof(data) / sizeof(int); i++)
       {
@@ -376,6 +419,9 @@ void timerISR()
           crawlFstates = true;
          break;
          case 2:
+          crawlFanDecay = true;
+         break;
+         case 3:
           crawlEstates = true;
          break;
          case 5:
@@ -383,6 +429,7 @@ void timerISR()
           crawlFstates = false;
           crawlEstates = false;
           menu = 0;
+          cdecay = 0;
           setRGB(0, 0, 0);
           setFan(0);
          break;
@@ -398,6 +445,7 @@ void timerISR()
 void setup()
 {
   Serial.begin(9600);
+  analogWriteFreq(18000);
   pinMode(RED, OUTPUT);
   pinMode(GREEN, OUTPUT);
   pinMode(BLUE, OUTPUT);
