@@ -9,15 +9,14 @@ const int BUTTON = 4;
 const int FANSPEED = 16;
 const int FANDATA = 14;
 
-const int btnjumpignore = 150;
+const int btnjumpignore = 50;
 const int shortpress = 800;
 const int longpress = 2000;
 const int tvok = 2100;
 
 char *cstring = NULL;
 
-bool bpressed = false;
-bool breleased = false;
+bool buttonState = false;
 unsigned int timesbpressed = 0;
 bool vok = false;
 bool configured = false;
@@ -26,10 +25,14 @@ unsigned int currentFanState = 0;
 unsigned int currentEffect = 0;
 unsigned int currentFanDecay = 0;
 
+static unsigned int bTime = 0;
+
 bool crawlFstates = false;
 bool crawlEstates = false;
 bool crawlFanDecay = false;
 bool fanMoves = false;
+
+bool bpressed = false;
 
 unsigned short fanstates[8] = { 8, 15, 20, 40, 60, 80, 0, 0 };
 int data[3] = { 0 };
@@ -213,16 +216,8 @@ void setFan(unsigned short speed)
 
 void button_change_isr()
 {
-  if(!bpressed)
-  {
-    bpressed = true;
-    setRGB(255, 0, 0);
-  }
-  else
-  {
-    breleased = true;
-    setRGB(0, 0, 0);
-  }
+  bpressed = digitalRead(BUTTON) == HIGH ? false : true;
+  bTime = 0;
 }
 
 void timerISR()
@@ -234,8 +229,24 @@ void timerISR()
   static unsigned int menu = 0;
   static bool enter = false;
   static unsigned int cdecay = 0;
+  static bool oldbstate = false;
+  static unsigned int pressC = 0;
   
   bpwCounter++;
+
+  if(bpressed != oldbstate)
+  {
+    Serial.print("Buttonstate: ");
+    Serial.println(bpressed);
+    oldbstate = bpressed;
+  }
+
+  /*if(bpressed && bpwCounter > btnjumpignore)
+  {
+    bpwCounter = 0;
+    Serial.print("[Press]");
+    Serial.println(pressC++);
+  }*/
   
   /*if(bpressed && bpwCounter > 400)
   {
@@ -296,7 +307,7 @@ void timerISR()
         currentFanDecay = 0;
       }
       else
-        crawl_waiter.wait(500);
+        crawl_waiter.wait(1000);
       setFan(100 - currentFanDecay);
     }
   }
@@ -312,7 +323,7 @@ void timerISR()
         dec_waiter.wait(4);
       }
     }
-    setFan(fanstates[data[1]] - cdecay);
+    setFan(fanstates[data[0]] - cdecay);
     
     switch(data[2])
     {
@@ -333,17 +344,14 @@ void timerISR()
     isChecking = true;
     confirmCounter = 0;
   }
-  else if(bpressed && isChecking && !breleased)
+  else if(bpressed && isChecking)
   {
     buttonLastSignal = bpwCounter;
     confirmCounter = 0;
   }
-  else if(breleased && isChecking)
+  else if(!bpressed && isChecking)
   {
     isChecking = false;
-
-    bpressed = false;
-    breleased = false;
     
     long int offsetTime = buttonLastSignal - buttonTriggered;
 
