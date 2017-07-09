@@ -1,35 +1,8 @@
-#include "Globals.hpp"
 #include "LightEffects.hpp"
 #include "FS.h"
 
-bool buttonState = false;
-unsigned int timesbpressed = 0;
-bool vok = false;
-bool configured = false;
-
-unsigned int currentFanState = 0;
-unsigned int currentEffect = 0;
-unsigned int currentFanDecay = 0;
-
-static unsigned int bTime = 0;
-
-bool crawlFstates = false;
-bool crawlEstates = false;
-bool crawlFanDecay = false;
-bool fanMoves = false;
-
-bool bpressed = false;
-
-unsigned short fanstates[8] = { 8, 15, 20, 40, 60, 80, 0, 0 };
-int data[4] = { 5, 1, 1, 4 };
-
-int cr = 0;
-int cg = 0;
-int cb = 0;
-
 Ticker timer;
 
-Waiter leff_waiter;
 Waiter crawl_waiter;
 Waiter dec_waiter;
 
@@ -260,6 +233,9 @@ void timerISR()
           cdecay = 0;
           setRGB(0, 0, 0);
           setFan(0);
+         break;
+         default:
+          menu = 0;
          break;
       }
     }

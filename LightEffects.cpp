@@ -1,6 +1,8 @@
 #include "LightEffects.hpp"
 
-extern void fire()
+extern Waiter leff_waiter = Waiter();
+
+void fire()
 {
   const static int ir = 255;
   const static int ig = 80;
@@ -39,7 +41,7 @@ extern void fire()
   }
 }
 
-extern void train()
+void train()
 {
   const static int bhfProb = 7;
   const static int pollerFehlerProb = 20;
