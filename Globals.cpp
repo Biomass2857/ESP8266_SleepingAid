@@ -29,8 +29,9 @@ bool crawlEstates = false;
 bool crawlFanDecay = false;
 bool fanMoves = false;
 bool bpressed = false;
+bool canUseSPIFFS = false;
 
-unsigned short fanstates[8] = { 8, 15, 20, 40, 60, 80, 0, 0 };
+const unsigned short fanstates[9] = { 8, 15, 20, 40, 60, 80, 100, 0, 0 };
 int data[4] = { 5, 1, 1, 4 };
 
 void setRGB(int r, int g, int b)

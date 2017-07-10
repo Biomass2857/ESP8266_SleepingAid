@@ -35,8 +35,9 @@ extern bool crawlEstates;
 extern bool crawlFanDecay;
 extern bool fanMoves;
 extern bool bpressed;
+extern bool canUseSPIFFS;
 
-extern unsigned short fanstates[8];
+extern const unsigned short fanstates[9];
 extern int data[4];
 
 extern void setRGB(int, int, int);

@@ -12,6 +12,65 @@ void button_change_isr()
   bTime = 0;
 }
 
+void storeData(int *data, size_t size)
+{
+  if(canUseSPIFFS)
+  {
+    File p = SPIFFS.open("/data.txt", "w");
+  
+    char *towrite = (char*) malloc(size * sizeof(char));
+  
+    for(int i = 0; i < size; i++)
+    {
+      *(towrite + i) = char(*(data + i));
+    }
+    
+    if(p)
+    {
+      p.println(towrite);
+    }
+  
+    free(towrite);
+
+    p.close();
+  }
+}
+
+struct packet
+{
+  int *data;
+  size_t size;
+};
+
+struct packet readData()
+{
+  struct packet r;
+
+  r.data = NULL;
+  r.size = 0;
+  
+  if(canUseSPIFFS)
+  {
+    File p = SPIFFS.open("/data.txt", "r");
+    if(p)
+    {
+      r.data = (int*) malloc(sizeof(int) * 4);
+      String rawdata = p.readStringUntil('\n');
+      for(int i = 0; i < 4; i++)
+      {
+        if(i < rawdata.length())
+          *(r.data + i) = int(rawdata[i]);
+      }
+
+      r.size = 4;
+    }
+
+    p.close();
+  }
+
+  return r;
+}
+
 void timerISR()
 {
   static unsigned long int bpwCounter = 0;
@@ -22,6 +81,7 @@ void timerISR()
   static bool enter = false;
   static unsigned int cdecay = 0;
   static bool oldbstate = false;
+  struct packet pdata;
   
   bpwCounter++;
 
@@ -36,7 +96,7 @@ void timerISR()
   {
     if(!crawl_waiter.isStillWaiting())
     {
-      currentEffect = (currentEffect + 1) % 2;
+      currentEffect = (currentEffect + 1) % 3;
       crawl_waiter.wait(5000);
     }
 
@@ -48,6 +108,9 @@ void timerISR()
       case 1:
         train();
       break;
+      case 2:
+        setRGB(0, 0, 0);
+      break;
     }
   }
 
@@ -55,7 +118,7 @@ void timerISR()
   {
     if(!crawl_waiter.isStillWaiting())
     {
-      currentFanState = (currentFanState + 1) % 8;
+      currentFanState = (currentFanState + 1) % 9;
       setRGB(0, 255, 0);
       setFan(fanstates[currentFanState]);
       if(currentFanState != 0)
@@ -98,7 +161,7 @@ void timerISR()
       {
         if(cdecay < 100)
           cdecay++;
-        dec_waiter.wait(data[3] * 15 * 1000 / 100);
+        dec_waiter.wait(data[3] * 15 * 1000 * 60 / 100);
         Serial.print("Current Decay: ");
         Serial.println(cdecay);
       }
@@ -116,6 +179,9 @@ void timerISR()
         case 1:
           train();
         break;
+        case 2:
+          setRGB(0, 0, 0);
+        break;
       }
     }
     else
@@ -127,7 +193,10 @@ void timerISR()
     bpwCounter = 0;
     isChecking = true;
     confirmCounter = 0;
-    setRGB(255, 0, 0);
+    if(menu != 5)
+      setRGB(255, 0, 0);
+    else
+      setRGB(0, 255, 255);
   }
   else if(bpressed && isChecking)
   {
@@ -140,15 +209,17 @@ void timerISR()
     
     long int offsetTime = buttonLastSignal - buttonTriggered;
 
+    setRGB(0, 0, 0);
     if(offsetTime <= shortpress && offsetTime > btnjumpignore && !configured)
     {
       Serial.println("[Event] Shortpress");
       confirmCounter = 0;
-      setRGB(0, 0, 0);
       if(menu == 5)
       {
         data[menu - 2]++;
         enter = true;
+
+        storeData(data, sizeof(data) / sizeof(int));
       }
       else if(menu != 0)
       {
@@ -156,12 +227,15 @@ void timerISR()
         {
           case 2:
             data[menu - 2] = currentFanState;
+            storeData(data, sizeof(data) / sizeof(int));
           break;
           case 3:
             data[menu - 2] = fanMoves ? 1 : 0;
+            storeData(data, sizeof(data) / sizeof(int));
           break;
           case 4:
             data[menu - 2] = currentEffect;
+            storeData(data, sizeof(data) / sizeof(int));
           break;
         }
 
@@ -233,6 +307,19 @@ void timerISR()
           cdecay = 0;
           setRGB(0, 0, 0);
           setFan(0);
+
+          pdata = readData();
+
+          if(pdata.size > 0)
+          {
+            for(int i = 0; i < pdata.size; i++)
+            {
+              data[i] = *(pdata.data + i);
+            }
+          }
+         break;
+         case 5:
+          setRGB(0, 255, 255);
          break;
          default:
           menu = 0;
@@ -244,35 +331,10 @@ void timerISR()
   }
 }
 
-void storeData(int *data, size_t size)
-{
-  File p = SPIFFS.open("/data.txt", "w");
-
-  char *towrite = (char*) malloc(size * sizeof(char));
-
-  for(int i = 0; i < size; i++)
-  {
-    *(towrite + i) = char(*(data + i));
-  }
-  
-  if(p)
-  {
-    //p.writeLine(towrite);
-  }
-
-  free(towrite);
-}
-
-int* readData()
-{
-  File p = SPIFFS.open("/data.txt", "r");
-  
-}
-
 void setup()
 {
   Serial.begin(9600);
-  SPIFFS.begin();
+  canUseSPIFFS = SPIFFS.begin();
   analogWriteFreq(18000);
   pinMode(RED, OUTPUT);
   pinMode(GREEN, OUTPUT);
@@ -284,6 +346,19 @@ void setup()
   attachInterrupt(BUTTON, button_change_isr, CHANGE);
   timer.attach_ms(1, timerISR);
   setRGB(0, 0, 0);
+
+  if(canUseSPIFFS)
+  {
+    struct packet pdata = readData();
+
+    if(pdata.size > 0)
+    {
+      for(int i = 0; i < pdata.size; i++)
+      {
+        data[i] = *(pdata.data + i);
+      }
+    }
+  }
 }
 
 void loop() {}
